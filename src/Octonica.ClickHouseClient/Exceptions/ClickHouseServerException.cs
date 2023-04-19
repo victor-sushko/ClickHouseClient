@@ -1,5 +1,5 @@
 ﻿#region License Apache 2.0
-/* Copyright 2019-2021 Octonica
+/* Copyright 2019-2021, 2023 Octonica
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -103,10 +103,27 @@ namespace Octonica.ClickHouseClient.Exceptions
         /// <returns>The new instance of <see cref="ClickHouseServerException"/> with the provided query</returns>
         public ClickHouseServerException CopyWithQuery(string query)
         {
-            if (InnerException == null)
-                return new ClickHouseServerException(ServerErrorCode, ServerErrorType, Message, ServerStackTrace, query);
+            return CopyWith(query, null);
+        }
 
-            return new ClickHouseServerException(ServerErrorCode, ServerErrorType, Message, ServerStackTrace, query, InnerException);
+        /// <summary>
+        /// Creates and returns a new instance of <see cref="ClickHouseServerException"/> with the provided query.
+        /// </summary>
+        /// <param name="query">The query that should be added to the exception.</param>
+        /// <param name="innerException">
+        /// The inner exception caused this exception.
+        /// If <see cref="Exception.InnerException"/> is already exists it will be replaced with <see cref="AggregateException"/>
+        /// containig two inner exceptions.
+        /// </param>
+        /// <returns>The new instance of <see cref="ClickHouseServerException"/> with the provided query</returns>
+        public ClickHouseServerException CopyWith(string query, Exception? innerException)
+        {
+            var innerEx =
+                InnerException == null ? innerException :
+                innerException == null ? InnerException :
+                new AggregateException(InnerException, innerException);
+
+            return new ClickHouseServerException(ServerErrorCode, ServerErrorType, Message, ServerStackTrace, query, innerEx);
         }
     }
 }

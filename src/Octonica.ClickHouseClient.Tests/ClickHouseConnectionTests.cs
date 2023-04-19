@@ -1,5 +1,5 @@
 ﻿#region License Apache 2.0
-/* Copyright 2019-2021 Octonica
+/* Copyright 2019-2021, 2023 Octonica
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -234,6 +234,34 @@ namespace Octonica.ClickHouseClient.Tests
             {
                 disposed = true;
             }
+        }
+
+        [Fact]
+        public async Task KeepStateAfterServerError()
+        {
+            var cn = await OpenConnectionAsync();
+
+            using var cmd = cn.CreateCommand();
+
+            // Check the value before change it
+            const string getSettingValueQuery = "SELECT value FROM system.settings WHERE name = 'insert_distributed_sync'";
+            cmd.CommandText = getSettingValueQuery;
+            var settingValue = await cmd.ExecuteScalarAsync<string>();
+            Assert.Equal("0", settingValue);
+
+            // Change the state of the session
+            cmd.CommandText= "SET insert_distributed_sync = 1";
+            await cmd.ExecuteNonQueryAsync();
+
+            // Send erroneous query
+            cmd.CommandText = "DROP TABLE unknown_table";
+            await Assert.ThrowsAsync<ClickHouseServerException>(() => cmd.ExecuteNonQueryAsync());
+
+            // Check if the connection is alive AND it's state is intact (i.e. the connection was not reopened)
+            Assert.Equal(ConnectionState.Open, cn.State);
+            cmd.CommandText = getSettingValueQuery;
+            settingValue = await cmd.ExecuteScalarAsync<string>();
+            Assert.Equal("1", settingValue);
         }
     }
 }

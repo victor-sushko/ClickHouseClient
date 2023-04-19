@@ -1,5 +1,5 @@
 ﻿#region License Apache 2.0
-/* Copyright 2019-2022 Octonica
+/* Copyright 2019-2023 Octonica
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -216,7 +216,8 @@ namespace Octonica.ClickHouseClient
         {
             ClickHouseTcpClient.Session? session = null;
 
-            bool cancelOnFailure = false;            
+            bool cancelOnFailure = false;
+            bool failOnServerError = true;
             try
             {
                 session = await OpenSession(false, async, cancellationToken);
@@ -247,7 +248,23 @@ namespace Octonica.ClickHouseClient
                             continue;
 
                         case ServerMessageCode.Error:
-                            throw ((ServerErrorMessage) message).Exception.CopyWithQuery(query);
+                            try
+                            {
+                                const int pingCount = 3;
+                                failOnServerError = !await session.CheckIsAlive(pingCount, async, cancellationToken);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                // Ignore OperationCanceledException because the server error occurred earlier.
+                                throw ((ServerErrorMessage)message).Exception.CopyWithQuery(query);
+                            }
+                            catch (Exception ex)
+                            {
+                                // This exception is not a real reason for the server error. Lets keep it for diagnostics.
+                                throw ((ServerErrorMessage)message).Exception.CopyWith(query, ex);
+                            }
+
+                            throw ((ServerErrorMessage)message).Exception.CopyWithQuery(query);
 
                         case ServerMessageCode.EndOfStream:
                             result = (result.read + progress.read, result.written + progress.written);
@@ -278,6 +295,17 @@ namespace Octonica.ClickHouseClient
                             throw new NotSupportedException($"Internal error. Message code \"{message.MessageCode}\" not supported.");
                     }
                 }
+            }
+            catch (ClickHouseServerException ex)
+            {
+                if (session != null && failOnServerError)
+                {
+                    var aggrEx = await session.SetFailed(ex, cancelOnFailure, async);
+                    if (aggrEx != null)
+                        throw aggrEx;
+                }
+
+                throw;
             }
             catch (ClickHouseHandledException ex)
             {

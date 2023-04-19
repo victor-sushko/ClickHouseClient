@@ -278,6 +278,40 @@ namespace Octonica.ClickHouseClient
                 writer.EndCompress();
             }
 
+            /// <summary>
+            /// Checks if the session is alive and ready for sending next message. It is done by checking that
+            /// the input buffer is empty and then pinging the server N times.
+            /// </summary>
+            /// <param name="pingCount">Number of ping messages that should be sent to the server.</param>
+            /// <param name="async"></param>
+            /// <param name="cancellationToken"></param>
+            /// <returns><see langword="true"/> if the state of the session is valid and the server responded to ping messages; otherwise <see langword="false"/>.</returns>
+            public async ValueTask<bool> CheckIsAlive(int pingCount, bool async, CancellationToken cancellationToken)
+            {
+                CheckDisposed();
+
+                if (_client._reader.TryPeekByte(out _))
+                    return false;
+
+                var writer = _client._writer;
+                for (int i = 0; i < pingCount; i++)
+                    writer.Write7BitInt32((int)ClientMessageCode.Ping);
+
+                await writer.Flush(async, cancellationToken);
+
+                for (int i = 0; i < pingCount; i++)
+                {
+                    var message = await ReadMessage(async, cancellationToken);
+                    if (!(message is ServerPongMessage))
+                        return false;
+                }
+
+                if (_client._reader.TryPeekByte(out _))
+                    return false;
+
+                return true;
+            }
+
             public async ValueTask<IServerMessage> ReadMessage(bool async, CancellationToken cancellationToken)
             {
                 return await WithCancellationToken(cancellationToken, ct => _client._reader.ReadMessage(true, async, ct));
